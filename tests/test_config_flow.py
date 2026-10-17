@@ -1,5 +1,6 @@
 """Tests for the config flow."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,6 +16,7 @@ from custom_components.tuya_local import (
     async_setup_entry,
     async_unload_entry,
     async_update_entry,
+    cleanup_failed_device,
     config_flow,
     get_device_unique_id,
 )
@@ -30,6 +32,55 @@ from custom_components.tuya_local.const import (
 
 # Designed to contain "special" characters that users constantly suspect.
 TESTKEY = ")<jO<@)'P1|kR$Kd"
+
+
+@pytest.mark.parametrize(
+    ("sibling_kind", "close_parent"),
+    [("child", False), ("gateway", False), ("other_gateway", True), (None, True)],
+)
+def test_failed_child_cleanup_preserves_parent_users(
+    hass, mocker, sibling_kind, close_parent
+):
+    """A failed child must not close a gateway still used by another entry."""
+    parent = SimpleNamespace(parent=None, set_socketPersistent=mocker.Mock())
+    child = SimpleNamespace(parent=parent, set_socketPersistent=mocker.Mock())
+    hass.data[DOMAIN] = {
+        # The parent transport cache alone is not an active config entry.
+        "gateway": {"tuyadevice": parent},
+        "gateway/failed": {"device": object(), "tuyadevice": child},
+    }
+    if sibling_kind is not None:
+        if sibling_kind == "gateway":
+            sibling_api = parent
+        else:
+            sibling_parent = parent if sibling_kind == "child" else object()
+            sibling_api = SimpleNamespace(parent=sibling_parent)
+        hass.data[DOMAIN]["sibling"] = {
+            "device": object(),
+            "tuyadevice": sibling_api,
+        }
+
+    cleanup_failed_device(hass, "gateway/failed")
+
+    assert "gateway/failed" not in hass.data[DOMAIN]
+    child.set_socketPersistent.assert_called_once_with(False)
+    if close_parent:
+        parent.set_socketPersistent.assert_called_once_with(False)
+    else:
+        parent.set_socketPersistent.assert_not_called()
+    if sibling_kind is not None:
+        assert hass.data[DOMAIN]["sibling"]["tuyadevice"] is sibling_api
+
+
+def test_failed_standalone_cleanup_closes_its_socket(hass, mocker):
+    """Standalone cleanup retains its existing socket-close behavior."""
+    api = SimpleNamespace(parent=None, set_socketPersistent=mocker.Mock())
+    hass.data[DOMAIN] = {"standalone": {"device": object(), "tuyadevice": api}}
+
+    cleanup_failed_device(hass, "standalone")
+
+    assert "standalone" not in hass.data[DOMAIN]
+    api.set_socketPersistent.assert_called_once_with(False)
 
 
 @pytest.fixture(autouse=True)
