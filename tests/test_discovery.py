@@ -215,8 +215,8 @@ def _patch_flow_init(hass, mocker):
 
 
 @pytest.mark.asyncio
-async def test_product_scan_warns_once_on_unmatched_product(hass, caplog, mocker):
-    """An unmatched product id is logged at WARNING, once per device per run."""
+async def test_product_scan_silent_on_unmatched_product(hass, caplog, mocker):
+    """LAN scans do not warn about products missing from a device profile."""
     _make_entry(hass, host="192.168.1.10")
     mocker.patch(
         "custom_components.tuya_local.discovery._scan_all",
@@ -234,8 +234,8 @@ async def test_product_scan_warns_once_on_unmatched_product(hass, caplog, mocker
     ):
         await disc._async_discovery_scan()
         await hass.async_block_till_done()
-        assert caplog.text.count("keyabc123") == 1
-        # A second scan must not warn again for the same device.
+        assert "keyabc123" not in caplog.text
+        # Repeated scans remain quiet too.
         caplog.clear()
         await disc._async_discovery_scan()
         await hass.async_block_till_done()
