@@ -85,6 +85,16 @@ def cleanup_failed_device(hass: HomeAssistant, device_id: str):
     if api:
         api.set_socketPersistent(False)
         if api.parent:
+            # The failed child does not own a parent still used by another
+            # runtime device. A cached parent without a device is not a user.
+            for data in domain_data.values():
+                if not isinstance(data, dict) or data.get("device") is None:
+                    continue
+                other_api = data.get("tuyadevice")
+                if other_api is api.parent or (
+                    other_api is not None and other_api.parent is api.parent
+                ):
+                    return
             api.parent.set_socketPersistent(False)
 
 
